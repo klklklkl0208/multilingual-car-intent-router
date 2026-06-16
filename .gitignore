@@ -1,0 +1,13 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+*.egg-info/
+
+# 密钥 —— 绝不提交！
+.streamlit/secrets.toml
+.env
+
+# 系统
+.DS_Store
