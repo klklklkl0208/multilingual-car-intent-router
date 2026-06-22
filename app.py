@@ -159,20 +159,37 @@ with tab4:
         "PM 日常工具：输入缺陷描述或功能咨询,自动分类意图并在交互文档里查找对应功能,判定是否在规格里、定义是否完整。"
     )
 
-    # 上传或使用默认文档
+    # 上传交互文档
     spec_file = st.file_uploader(
         "上传交互文档 (.xlsx)",
         type=["xlsx"],
-        help="按模块分 sheet,每行一个功能,需含:功能ID / 功能名称 / 语音指令示例 / 响应行为 / 异常处理"
+        help="按模块分 sheet,每行一个功能,需含:功能ID / 功能名称 / 语音指令示例 / 响应行为 / 异常处理",
+        key="spec_file"
     )
     if not spec_file:
-        st.info("未上传文档,使用内置样例(通用车机交互文档)")
+        st.info("未上传交互文档,使用内置样例(通用车机交互文档)")
         spec_path = "docs/交互文档_样例.xlsx"
     else:
         import tempfile
         with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
             tmp.write(spec_file.read())
             spec_path = tmp.name
+
+    # 上传功能集
+    intents_file = st.file_uploader(
+        "上传功能集 (.xlsx,可选)",
+        type=["xlsx"],
+        help="列名: intent_id | 功能名称 | 槽位 | 示例。不传则使用内置功能集(8 类车控功能)",
+        key="intents_file"
+    )
+    if intents_file:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(intents_file.read())
+            intents_path = tmp.name
+        st.success("✅ 已加载自定义功能集")
+    else:
+        intents_path = None
+        st.info("未上传功能集,使用内置 8 类车控功能(空调/媒体/导航/车窗/座椅/电话等)")
 
     st.divider()
 
@@ -186,7 +203,7 @@ with tab4:
     if st.button("🔍 查询"):
         with st.spinner("路由中..."):
             from spec_lookup import query_spec
-            route_res, match = query_spec(defect_input, spec_path, prefer_llm)
+            route_res, match = query_spec(defect_input, spec_path, prefer_llm, intents_path)
 
         # 路由结果
         st.markdown("### 🎯 路由结果")
