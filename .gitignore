@@ -9,5 +9,15 @@ venv/
 .streamlit/secrets.toml
 .env
 
+# 工作参考文档 —— 不上传
+*.xlsx
+*.xls
+*.docx
+*.doc
+*.pptx
+*.ppt
+# 但样例交互文档需要提交(用来做 demo,不含真实公司数据)
+!docs/交互文档_样例.xlsx
+
 # 系统
 .DS_Store

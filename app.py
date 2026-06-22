@@ -50,7 +50,7 @@ with st.sidebar:
         "```"
     )
 
-tab1, tab2, tab3 = st.tabs(["🎙️ 实时路由", "📊 质量看板", "📖 功能集"])
+tab1, tab2, tab3, tab4 = st.tabs(["🎙️ 实时路由", "📊 质量看板", "📖 功能集", "📑 交互文档查询"])
 
 # ---- Tab 1: 实时路由 ----
 with tab1:
@@ -151,3 +151,84 @@ with tab3:
             "示例": " / ".join(spec["examples"][:3]),
         })
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+# ---- Tab 4: 交互文档查询 ----
+with tab4:
+    st.subheader("📑 交互文档查询")
+    st.markdown(
+        "PM 日常工具：输入缺陷描述或功能咨询,自动分类意图并在交互文档里查找对应功能,判定是否在规格里、定义是否完整。"
+    )
+
+    # 上传或使用默认文档
+    spec_file = st.file_uploader(
+        "上传交互文档 (.xlsx)",
+        type=["xlsx"],
+        help="按模块分 sheet,每行一个功能,需含:功能ID / 功能名称 / 语音指令示例 / 响应行为 / 异常处理"
+    )
+    if not spec_file:
+        st.info("未上传文档,使用内置样例(通用车机交互文档)")
+        spec_path = "docs/交互文档_样例.xlsx"
+    else:
+        import tempfile
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
+            tmp.write(spec_file.read())
+            spec_path = tmp.name
+
+    st.divider()
+
+    # 输入缺陷描述
+    defect_input = st.text_area(
+        "输入缺陷描述或功能咨询:",
+        value="用户说'把 air conditioning 调到 20 度',车机没反应",
+        height=100,
+    )
+
+    if st.button("🔍 查询"):
+        with st.spinner("路由中..."):
+            from spec_lookup import query_spec
+            route_res, match = query_spec(defect_input, spec_path, prefer_llm)
+
+        # 路由结果
+        st.markdown("### 🎯 路由结果")
+        c1, c2, c3 = st.columns(3)
+        with c1:
+            st.caption("识别功能")
+            st.markdown(f"### `{route_res.intent}`")
+        with c2:
+            st.caption("置信度")
+            st.markdown(f"### {route_res.confidence:.0%}")
+        with c3:
+            st.caption("引擎")
+            st.markdown(f"### {'LLM' if route_res.engine == 'llm' else '规则兜底'}")
+
+        if route_res.detected_languages:
+            st.caption(f"检测到语言: {', '.join(route_res.detected_languages)}")
+
+        st.divider()
+
+        # 文档匹配结果
+        st.markdown("### 📄 文档中的对应功能")
+        if not match:
+            st.error("❌ 未在交互文档中找到对应功能\n\n可能原因:\n- 该模块未在文档里定义\n- 意图识别错误")
+        else:
+            st.success(f"✅ 找到匹配功能: **{match.function_name}** ({match.function_id})")
+            st.markdown(f"**所在模块**: {match.sheet_name} (第 {match.row_index + 2} 行)")  # +2 因为 header 占 1 行,idx 从 0 开始
+
+            with st.expander("📋 功能详情", expanded=True):
+                st.markdown(f"**语音指令示例**:\n```\n{match.voice_examples}\n```")
+                st.markdown(f"**响应行为**: {match.behavior}")
+                st.markdown(f"**异常处理**: {match.exception}")
+
+            # 覆盖度判定
+            st.divider()
+            st.markdown("### 🔍 覆盖度判定")
+            if match.coverage == "完整":
+                st.success(f"✅ **{match.coverage}**")
+                st.markdown(match.coverage_note)
+            else:
+                st.warning(f"⚠️ **{match.coverage}**")
+                st.markdown(match.coverage_note)
+                st.info(
+                    "**建议**: 这可能是产品规格的盲点(文档定义不全)而非开发 bug。\n\n"
+                    "可将此场景补充进交互文档的语音指令示例,避免后续测试误报。"
+                )
