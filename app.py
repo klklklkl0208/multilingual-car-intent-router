@@ -392,17 +392,9 @@ with tab1:
                 st.code(semantic_from_uploaded.get('operation', 'N/A'), language="")
 
             st.caption("**Semantic (语义定义)**")
-            # 解析 JSON 并格式化显示
+            # 原样显示上传文件里的 semantic 内容,不做任何解析/格式化
             semantic_data = semantic_from_uploaded.get('semantic', 'N/A')
-            if isinstance(semantic_data, str) and semantic_data.startswith('{'):
-                try:
-                    import json
-                    semantic_json = json.loads(semantic_data)
-                    st.json(semantic_json)
-                except:
-                    st.code(semantic_data, language="json")
-            else:
-                st.code(str(semantic_data), language="")
+            st.code(str(semantic_data), language="json")
 
         elif semantic_builtin:
             # 降级到内置 semantic
