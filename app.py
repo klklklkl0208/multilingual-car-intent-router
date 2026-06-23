@@ -495,19 +495,44 @@ with tab3:
 
 # ---- Tab 4: 交互文档查询 ----
 with tab4:
-    st.subheader("🔍 交互文档查询")
+    st.subheader("🔍 功能协议表查询")
     st.markdown(
-        "PM 日常工具：输入缺陷描述或功能咨询,自动分类意图并在交互文档里查找对应功能,判定是否在规格里、定义是否完整。"
+        "PM 日常工具：输入缺陷描述或功能咨询,自动分类意图并在功能协议表里查找对应功能,判定是否在规格里、定义是否完整。"
     )
+
+    import os as _os
+    # 本地缓存目录: 上传的文件存到磁盘,刷新浏览器也不丢
+    _CACHE_DIR = ".upload_cache"
+    _os.makedirs(_CACHE_DIR, exist_ok=True)
+    _CACHE_FILE = _os.path.join(_CACHE_DIR, "spec_table.xlsx")
+    _CACHE_NAME = _os.path.join(_CACHE_DIR, "spec_table.name")
 
     # 初始化 session state
     if 'spec_file_uploaded' not in st.session_state:
         st.session_state.spec_file_uploaded = False
         st.session_state.spec_file_name = None
+        st.session_state.uploaded_spec_table = None
+        # 启动时尝试从磁盘缓存恢复
+        if _os.path.exists(_CACHE_FILE):
+            import pandas as pd
+            try:
+                xl = pd.ExcelFile(_CACHE_FILE)
+                for sheet_name in xl.sheet_names:
+                    df = pd.read_excel(xl, sheet_name=sheet_name)
+                    cols_lower = [str(c).lower() for c in df.columns]
+                    if 'service' in cols_lower and 'semantic' in cols_lower:
+                        st.session_state.uploaded_spec_table = df
+                        st.session_state.spec_file_uploaded = True
+                        if _os.path.exists(_CACHE_NAME):
+                            with open(_CACHE_NAME, encoding="utf-8") as f:
+                                st.session_state.spec_file_name = f.read().strip()
+                        break
+            except Exception:
+                pass
 
-    # 上传交互文档
+    # 上传功能协议表
     spec_file = st.file_uploader(
-        "上传交互文档 (.xlsx)",
+        "上传功能协议表 (.xlsx)",
         type=["xlsx"],
         help="需含: service | operation | semantic 等列",
         key="spec_file"
@@ -515,48 +540,55 @@ with tab4:
 
     # 显示当前已加载的文件状态
     if st.session_state.spec_file_uploaded and st.session_state.spec_file_name:
-        st.info(f"📁 当前已加载: {st.session_state.spec_file_name}")
+        st.info(f"📁 当前已加载: {st.session_state.spec_file_name}（刷新后仍保留）")
         if st.button("🗑️ 清除已上传的文件"):
             st.session_state.uploaded_spec_table = None
             st.session_state.spec_file_uploaded = False
             st.session_state.spec_file_name = None
+            for _f in (_CACHE_FILE, _CACHE_NAME):
+                if _os.path.exists(_f):
+                    _os.remove(_f)
             st.rerun()
 
     if spec_file and not st.session_state.spec_file_uploaded:
-        import tempfile
         import pandas as pd
-        with tempfile.NamedTemporaryFile(delete=False, suffix=".xlsx") as tmp:
-            tmp.write(spec_file.read())
-            spec_path = tmp.name
-            # 读取所有 sheet,找到包含 service, operation, semantic 列的那个
-            try:
-                xl = pd.ExcelFile(spec_path)
-                found_sheet = None
-                for sheet_name in xl.sheet_names:
-                    df = pd.read_excel(xl, sheet_name=sheet_name)
-                    # 检查是否包含必需的列
-                    cols_lower = [str(c).lower() for c in df.columns]
-                    if 'service' in cols_lower and 'semantic' in cols_lower:
-                        found_sheet = sheet_name
-                        st.session_state.uploaded_spec_table = df
-                        st.session_state.spec_file_uploaded = True
-                        st.session_state.spec_file_name = spec_file.name
-                        st.success(f"✅ 已加载功能协议表(sheet: {sheet_name}),共 {len(df)} 行")
-                        break
+        # 把上传内容写入磁盘缓存(刷新不丢)
+        raw = spec_file.read()
+        with open(_CACHE_FILE, "wb") as f:
+            f.write(raw)
+        try:
+            xl = pd.ExcelFile(_CACHE_FILE)
+            found_sheet = None
+            for sheet_name in xl.sheet_names:
+                df = pd.read_excel(xl, sheet_name=sheet_name)
+                cols_lower = [str(c).lower() for c in df.columns]
+                if 'service' in cols_lower and 'semantic' in cols_lower:
+                    found_sheet = sheet_name
+                    st.session_state.uploaded_spec_table = df
+                    st.session_state.spec_file_uploaded = True
+                    st.session_state.spec_file_name = spec_file.name
+                    with open(_CACHE_NAME, "w", encoding="utf-8") as f:
+                        f.write(spec_file.name)
+                    st.success(f"✅ 已加载功能协议表(sheet: {sheet_name}),共 {len(df)} 行")
+                    break
 
-                if not found_sheet:
-                    st.warning(f"⚠️ 未找到包含 service/semantic 列的 sheet。文件有 {len(xl.sheet_names)} 个 sheet: {', '.join(xl.sheet_names)}")
-                    st.session_state.uploaded_spec_table = None
-            except Exception as e:
-                st.error(f"表格读取失败: {e}")
+            if not found_sheet:
+                st.warning(f"⚠️ 未找到包含 service/semantic 列的 sheet。文件有 {len(xl.sheet_names)} 个 sheet: {', '.join(xl.sheet_names)}")
                 st.session_state.uploaded_spec_table = None
+                if _os.path.exists(_CACHE_FILE):
+                    _os.remove(_CACHE_FILE)
+        except Exception as e:
+            st.error(f"表格读取失败: {e}")
+            st.session_state.uploaded_spec_table = None
+        spec_path = _CACHE_FILE
     elif not spec_file and not st.session_state.spec_file_uploaded:
-        st.info("未上传文档,使用内置样例(通用车机交互文档)")
+        st.info("未上传文档,使用内置样例(通用车机功能协议表)")
         spec_path = "docs/交互文档_样例.xlsx"
         st.session_state.uploaded_spec_table = None
     else:
         # 已经上传过,使用缓存的数据
-        spec_path = None
+        spec_path = _CACHE_FILE if _os.path.exists(_CACHE_FILE) else None
+
 
     # 上传功能集
     intents_file = st.file_uploader(

@@ -23,3 +23,6 @@ venv/
 
 # 系统
 .DS_Store
+
+# 上传文件的本地缓存(含真实公司数据,绝不提交)
+.upload_cache/
