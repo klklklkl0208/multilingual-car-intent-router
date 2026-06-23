@@ -104,17 +104,24 @@ def lookup_from_uploaded_spec(user_text, intent_id, spec_table):
 
         # 对每个候选文本计算相似度
         for cand in candidates:
-            # 方法1: 包含关系(用户输入包含候选 或 候选包含用户输入)
-            if user_clean in cand or cand in user_clean:
-                score = 0.9
+            if not cand:
+                continue
+            if user_clean == cand:
+                # 完全相同 -> 满分
+                score = 1.0
+            elif user_clean in cand or cand in user_clean:
+                # 包含关系: 用长度比例衡量"包含的充分性"
+                # 避免"打开"这种短通用词成为"打开车窗"的高分误匹配
+                shorter = min(len(user_clean), len(cand))
+                longer = max(len(user_clean), len(cand))
+                score = 0.55 + 0.45 * (shorter / longer)  # 0.55 ~ 1.0
             else:
-                # 方法2: 序列相似度
-                score = SequenceMatcher(None, user_clean, cand).ratio()
-                # 方法3: 关键字符重叠(中文场景)
+                # 序列相似度
+                seq = SequenceMatcher(None, user_clean, cand).ratio()
+                # 关键字符重叠(中文场景),权重压低,避免共享字干扰
                 common = set(user_clean) & set(cand)
-                if len(user_clean) > 0:
-                    overlap = len(common) / len(set(user_clean))
-                    score = max(score, overlap * 0.85)
+                overlap = len(common) / len(set(user_clean)) if user_clean else 0
+                score = max(seq, overlap * 0.6)
 
             if score > best_score:
                 # 检查这一行有 service 或 semantic
