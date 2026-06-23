@@ -501,19 +501,25 @@ with tab4:
     )
 
     import os as _os
-    # 本地缓存目录: 上传的文件存到磁盘,刷新浏览器也不丢
+    # 自动检测运行环境:
+    # - Streamlit Cloud 应用跑在 /mount/src 下 -> 云端,禁用磁盘共享(防止访客看到彼此上传的文件)
+    # - 本地开发 -> 用磁盘缓存,刷新浏览器不丢
+    _IS_CLOUD = _os.getcwd().startswith("/mount/src") or _os.environ.get("APP_ENV") == "cloud"
+    _USE_DISK_CACHE = not _IS_CLOUD
+
     _CACHE_DIR = ".upload_cache"
-    _os.makedirs(_CACHE_DIR, exist_ok=True)
     _CACHE_FILE = _os.path.join(_CACHE_DIR, "spec_table.xlsx")
     _CACHE_NAME = _os.path.join(_CACHE_DIR, "spec_table.name")
+    if _USE_DISK_CACHE:
+        _os.makedirs(_CACHE_DIR, exist_ok=True)
 
     # 初始化 session state
     if 'spec_file_uploaded' not in st.session_state:
         st.session_state.spec_file_uploaded = False
         st.session_state.spec_file_name = None
         st.session_state.uploaded_spec_table = None
-        # 启动时尝试从磁盘缓存恢复
-        if _os.path.exists(_CACHE_FILE):
+        # 启动时尝试从磁盘缓存恢复(仅本地)
+        if _USE_DISK_CACHE and _os.path.exists(_CACHE_FILE):
             import pandas as pd
             try:
                 xl = pd.ExcelFile(_CACHE_FILE)
@@ -540,24 +546,31 @@ with tab4:
 
     # 显示当前已加载的文件状态
     if st.session_state.spec_file_uploaded and st.session_state.spec_file_name:
-        st.info(f"📁 当前已加载: {st.session_state.spec_file_name}（刷新后仍保留）")
+        _persist_note = "（刷新后仍保留）" if _USE_DISK_CACHE else "（本会话内有效）"
+        st.info(f"📁 当前已加载: {st.session_state.spec_file_name}{_persist_note}")
         if st.button("🗑️ 清除已上传的文件"):
             st.session_state.uploaded_spec_table = None
             st.session_state.spec_file_uploaded = False
             st.session_state.spec_file_name = None
-            for _f in (_CACHE_FILE, _CACHE_NAME):
-                if _os.path.exists(_f):
-                    _os.remove(_f)
+            if _USE_DISK_CACHE:
+                for _f in (_CACHE_FILE, _CACHE_NAME):
+                    if _os.path.exists(_f):
+                        _os.remove(_f)
             st.rerun()
 
     if spec_file and not st.session_state.spec_file_uploaded:
+        import io
         import pandas as pd
-        # 把上传内容写入磁盘缓存(刷新不丢)
         raw = spec_file.read()
-        with open(_CACHE_FILE, "wb") as f:
-            f.write(raw)
+        # 本地: 写磁盘缓存(刷新不丢);云端: 只在内存解析(避免访客互相看到文件)
+        if _USE_DISK_CACHE:
+            with open(_CACHE_FILE, "wb") as f:
+                f.write(raw)
+            _excel_src = _CACHE_FILE
+        else:
+            _excel_src = io.BytesIO(raw)
         try:
-            xl = pd.ExcelFile(_CACHE_FILE)
+            xl = pd.ExcelFile(_excel_src)
             found_sheet = None
             for sheet_name in xl.sheet_names:
                 df = pd.read_excel(xl, sheet_name=sheet_name)
@@ -567,20 +580,21 @@ with tab4:
                     st.session_state.uploaded_spec_table = df
                     st.session_state.spec_file_uploaded = True
                     st.session_state.spec_file_name = spec_file.name
-                    with open(_CACHE_NAME, "w", encoding="utf-8") as f:
-                        f.write(spec_file.name)
+                    if _USE_DISK_CACHE:
+                        with open(_CACHE_NAME, "w", encoding="utf-8") as f:
+                            f.write(spec_file.name)
                     st.success(f"✅ 已加载功能协议表(sheet: {sheet_name}),共 {len(df)} 行")
                     break
 
             if not found_sheet:
                 st.warning(f"⚠️ 未找到包含 service/semantic 列的 sheet。文件有 {len(xl.sheet_names)} 个 sheet: {', '.join(xl.sheet_names)}")
                 st.session_state.uploaded_spec_table = None
-                if _os.path.exists(_CACHE_FILE):
+                if _USE_DISK_CACHE and _os.path.exists(_CACHE_FILE):
                     _os.remove(_CACHE_FILE)
         except Exception as e:
             st.error(f"表格读取失败: {e}")
             st.session_state.uploaded_spec_table = None
-        spec_path = _CACHE_FILE
+        spec_path = _CACHE_FILE if _USE_DISK_CACHE else None
     elif not spec_file and not st.session_state.spec_file_uploaded:
         st.info("未上传文档,使用内置样例(通用车机功能协议表)")
         spec_path = "docs/交互文档_样例.xlsx"
